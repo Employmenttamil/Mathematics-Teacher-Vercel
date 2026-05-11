@@ -1,7 +1,9 @@
+from flask import Flask, request, jsonify
 import os
 import json
 import requests
-from http.server import BaseHTTPRequestHandler
+
+app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
@@ -136,12 +138,8 @@ def process_message(update):
     # Get user info for tagging
     user = message.get("from", {})
     first_name = user.get("first_name", "")
-    username = user.get("username", "")
-
-    if username:
-        user_tag = f'<a href="tg://user?id={user.get("id", "")}">{first_name}</a>'
-    else:
-        user_tag = f'<a href="tg://user?id={user.get("id", "")}">{first_name}</a>'
+    user_id = user.get("id", "")
+    user_tag = f'<a href="tg://user?id={user_id}">{first_name}</a>'
 
     # Check if it's a photo/image
     photo = message.get("photo")
@@ -151,7 +149,6 @@ def process_message(update):
     response = None
 
     if photo:
-        # Get the largest photo
         file_id = photo[-1]["file_id"]
         file_url = get_file_url(file_id)
         if file_url:
@@ -162,10 +159,8 @@ def process_message(update):
         if file_url:
             response = call_groq_vision(file_url, text)
     elif text:
-        # Check if it's math-related
         if not is_math_related(text):
-            return  # Stay silent for non-math messages
-
+            return
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": text}
@@ -175,30 +170,26 @@ def process_message(update):
         return
 
     if response and response.strip() != "SKIP" and "SKIP" not in response[:10]:
-        # Add shop link at the end
         shop_link = '\n\n🛒 <a href="https://employmenttamil.in/shop/">விற்பனை நிலையம்</a>'
         final_response = f"{user_tag}\n\n{response}{shop_link}"
         send_message(chat_id, final_response, reply_to_message_id=message_id)
 
 
-class handler(BaseHTTPRequestHandler):
-    def do_POST(self):
-        content_length = int(self.headers.get('Content-Length', 0))
-        body = self.rfile.read(content_length)
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    try:
+        update = request.get_json(force=True)
+        process_message(update)
+    except Exception as e:
+        print(f"Error: {e}")
+    return jsonify({"ok": True})
 
-        try:
-            update = json.loads(body)
-            process_message(update)
-        except Exception as e:
-            print(f"Error: {e}")
 
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps({"ok": True}).encode())
+@app.route("/webhook", methods=["GET"])
+def webhook_get():
+    return jsonify({"status": "Math Teacher Bot is running!"})
 
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps({"status": "Math Teacher Bot is running!"}).encode())
+
+@app.route("/", methods=["GET"])
+def index():
+    return jsonify({"status": "Math Teacher Bot is running!"})
